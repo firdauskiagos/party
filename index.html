@@ -258,7 +258,7 @@ function optimize(url){
    GitHub loader
 ---------------------------- */
 async function scanGitHub(path=""){
-  const api=`https://api.github.com/repos/firdauskiagos/images/contents/${path}`;
+  const api=`https://api.github.com/repos/firdauskiagos/party/contents/${path}`;
   const res=await fetch(api);
   const files=await res.json();
 
@@ -266,7 +266,7 @@ async function scanGitHub(path=""){
     if(f.type==="file" && /\.(jpg|jpeg|png|webp)$/i.test(f.name)){
       imageList.push({file:f.download_url,name:f.name,category:path||"all"});
     }
-    if(f.type==="dir") await scanGitHub(f.path.replace("images/",""));
+    if(f.type==="dir") await scanGitHub(f.path.replace("party/",""));
   }
 }
 
