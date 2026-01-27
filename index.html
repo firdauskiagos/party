@@ -214,6 +214,7 @@ const exifContent=document.getElementById("exifContent");
 const captionText=document.getElementById("captionText");
 const metaPanel=document.getElementById("metaPanel");
 
+/* Global State */
 let imageList=[];
 let captions={};
 
@@ -223,7 +224,7 @@ let currentImage=null;
 
 let exifCache={};             // EXIF memoization
 
-/* Zoom & pan state */
+/* Zoom state */
 let scale=1;
 let offsetX=0;
 let offsetY=0;
@@ -231,18 +232,15 @@ let panStartX=0;
 let panStartY=0;
 let panning=false;
 
-/* Mobile pinch state */
 let isPinching=false;
 let lastDist=0;
 let pinchStartScale=1;
 
-/* Swipe for drawer */
 let swipeStartY=0;
 let drawerOpen=false;
 let suppressSwipe=false;
 
-/* Max desktop + mobile zoom */
-const MAX_ZOOM = 8;
+const MAX_ZOOM=8;
 
 /* ---------------------------
    Load captions
@@ -255,15 +253,17 @@ async function loadCaptions(){
 /* ---------------------------
    Optimize
 ---------------------------- */
-function optimize(url){
-  return `https://images.weserv.nl/?url=${encodeURIComponent(url)}&w=900&q=75&output=webp`;
+function optimize(url) {
+  // Points to Vercel's optimization endpoint
+  // Ensure the width (w=1080) is present in your vercel.json sizes array
+  return `/_vercel/image?url=${encodeURIComponent(url)}&w=1080&q=75`;
 }
 
 /* ---------------------------
-   GitHub loader
+   GitHub loader + caching
 ---------------------------- */
 async function scanGitHub(path=""){
-  const api=`https://api.github.com/repos/firdauskiagos/party/contents/${path}`;
+  const api=`https://api.github.com/repos/firdauskiagos/images/contents/${path}?t=${Date.now()}`;
   const res=await fetch(api);
   const files=await res.json();
 
@@ -271,7 +271,7 @@ async function scanGitHub(path=""){
     if(f.type==="file" && /\.(jpg|jpeg|png|webp)$/i.test(f.name)){
       imageList.push({file:f.download_url,name:f.name,category:path||"all"});
     }
-    if(f.type==="dir") await scanGitHub(f.path.replace("party/",""));
+    if(f.type==="dir") await scanGitHub(f.path.replace("images/",""));
   }
 }
 
@@ -419,12 +419,11 @@ modal.addEventListener("click",e=>{
   if(e.target===modal) closeModal();
 });
 
-/* ESC */
 document.addEventListener("keydown",e=>{
   if(e.key==="Escape") closeModal();
 });
 
-/* Arrow keys */
+/* Arrow navigation in filtered array */
 document.addEventListener("keydown",e=>{
   if(modal.style.display!=="flex") return;
 
@@ -493,7 +492,6 @@ modalImg.addEventListener("touchend",e=>{
   if(isPinching && e.touches.length<2){
     isPinching=false;
 
-    /* Prevent pinch-out from closing */
     suppressSwipe=true;
     setTimeout(()=>suppressSwipe=false,80);
 
@@ -541,7 +539,7 @@ function closeDrawer(){
 }
 
 /* ---------------------------
-   DESKTOP PAN (mouse drag)
+   DESKTOP PAN
 ---------------------------- */
 modalImg.addEventListener("mousedown",e=>{
   if(window.innerWidth<=700) return;
@@ -567,7 +565,7 @@ document.addEventListener("mousemove",e=>{
 document.addEventListener("mouseup",()=>{ panning=false; });
 
 /* ---------------------------
-   DESKTOP ZOOM + TRACKPAD PINCH + TRACKPAD PAN
+   DESKTOP ZOOM + TRACKPAD
 ---------------------------- */
 modalImg.addEventListener("wheel", e => {
   if (window.innerWidth <= 700) return;
@@ -576,7 +574,6 @@ modalImg.addEventListener("wheel", e => {
   const isTrackpadGesture = e.ctrlKey === true; 
   const isTrackpadScroll = Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) < 40;
 
-  /* Trackpad pinch zoom */
   if (isTrackpadGesture) {
     scale -= e.deltaY * 0.02;  
     scale = Math.max(1, Math.min(MAX_ZOOM, scale));
@@ -586,7 +583,6 @@ modalImg.addEventListener("wheel", e => {
     return;
   }
 
-  /* Trackpad pan */
   if (scale > 1 && isTrackpadScroll && !isTrackpadGesture) {
     offsetX -= e.deltaX;
     offsetY -= e.deltaY;
@@ -595,7 +591,6 @@ modalImg.addEventListener("wheel", e => {
     return;
   }
 
-  /* Mouse wheel zoom */
   if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
     scale += (e.deltaY < 0 ? 0.06 : -0.06);
     scale = Math.min(MAX_ZOOM, scale);
@@ -622,7 +617,6 @@ function applySoftBounds(){
   offsetY = Math.max(-maxY*1.2, Math.min(maxY*1.2, offsetY));
 }
 
-/* Hide EXIF when zoomed */
 function updateDesktopExifVisibility(){
   if(window.innerWidth <= 700) return;
   if(scale>1){
@@ -633,19 +627,32 @@ function updateDesktopExifVisibility(){
     metaPanel.style.pointerEvents="auto";
   }
 }
-
 /* ---------------------------
    INIT
 ---------------------------- */
-(async()=>{
+/* ---------------------------
+   INIT (with 2-hour cache)
+---------------------------- */
+(async () => {
   await loadCaptions();
 
-  const saved = localStorage.getItem("imageList");
-  if(saved){
+  const CACHE_KEY = "imageList";
+  const TIMESTAMP_KEY = "imageList_timestamp";
+  const TWO_HOURS = 2 * 60 * 60 * 1000; // Time in milliseconds
+
+  const saved = localStorage.getItem(CACHE_KEY);
+  const savedTime = localStorage.getItem(TIMESTAMP_KEY);
+  const now = Date.now();
+
+  // Check if cache exists AND is less than 2 hours old
+  if (saved && savedTime && (now - savedTime < TWO_HOURS)) {
     imageList = JSON.parse(saved);
   } else {
-  await scanGitHub();
-    localStorage.setItem("imageList", JSON.stringify(imageList));
+    // Clear and fetch fresh data
+    imageList = []; 
+    await scanGitHub(); 
+    localStorage.setItem(CACHE_KEY, JSON.stringify(imageList));
+    localStorage.setItem(TIMESTAMP_KEY, now.toString());
   }
 
   buildCategories();
